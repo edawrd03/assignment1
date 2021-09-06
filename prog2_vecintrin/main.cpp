@@ -238,9 +238,43 @@ void clampedExpSerial(float* values, int* exponents, float* output, int N) {
 
 void clampedExpVector(float* values, int* exponents, float* output, int N) {
   // TODO: Implement your vectorized version of clampedExpSerial here
+  __cmu418_vec_int vec_exponents;
+  __cmu418_vec_float vec_values, vec_res;
+  __cmu418_vec_int vec_ones_int = _cmu418_vset_int(1);
+  __cmu418_vec_int vec_zeros_int = _cmu418_vset_int(0);
+  __cmu418_vec_float vec_ones_float = _cmu418_vset_float(1.0);
+  __cmu418_vec_float vec_clamp_float = _cmu418_vset_float(9.999999f);
+
+  __cmu418_mask mask_load = _cmu418_init_ones();
+  __cmu418_mask mask_exp_eq_zero, mask_exp_gt_zero, mask_res_clamp;
+
+  int residual = N % VECTOR_WIDTH;
+  int comp = N - residual;
 
   for (int i=0; i<N; i+=VECTOR_WIDTH) {
+    if (i == comp) mask_load = _cmu418_init_ones(residual);
+    _cmu418_vload_float(vec_values, values + i, mask_load);
+    _cmu418_vload_int(vec_exponents, exponents + i, mask_load);
+    // init res to 1
+    _cmu418_vset_float(vec_res, 1.0f, mask_load);
 
+    _cmu418_veq_int(mask_exp_eq_zero, vec_exponents, vec_zeros_int, mask_load);
+
+    // for exponential greater than zero, do computation
+     mask_exp_gt_zero= _cmu418_mask_not(mask_exp_eq_zero);
+     while(_cmu418_cntbits(mask_exp_gt_zero) != 0) {
+       _cmu418_vmult_float(vec_res, vec_res, vec_values, mask_exp_gt_zero);
+
+       // exp -= 1
+       _cmu418_vsub_int(vec_exponents, vec_exponents, vec_ones_int, mask_exp_gt_zero);
+       _cmu418_vgt_int(mask_exp_gt_zero, vec_exponents, vec_zeros_int, mask_exp_gt_zero);
+     }
+
+    // clamp operation
+    _cmu418_vgt_float(mask_res_clamp, vec_res, vec_clamp_float, mask_load);
+    _cmu418_vmove_float(vec_res, vec_clamp_float, mask_res_clamp);
+
+    _cmu418_vstore_float(output + i, vec_res, mask_load);
   }
 
 }
